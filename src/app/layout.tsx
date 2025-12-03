@@ -2,6 +2,8 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import Script from "next/script";
+import { AuthProvider } from "@/hooks/useAuth";
+import { Toaster } from "sonner";
 import "./globals.css";
 
 const inter = Inter({
@@ -27,7 +29,10 @@ export default function RootLayout({
       <body
         className={`${inter.variable} font-inter antialiased bg-[#0D0D0D] text-white`}
       >
-        {children}
+        <AuthProvider>
+          {children}
+          <Toaster position="top-center" />
+        </AuthProvider>
       </body>
     </html>
   );

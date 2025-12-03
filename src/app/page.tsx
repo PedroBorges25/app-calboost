@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { Plus, TrendingUp, Dumbbell, Zap, Award, MoreHorizontal, Search, Droplet, Weight, User, ChevronRight } from "lucide-react";
 import { MealScanner } from "@/components/calboost/MealScanner";
 import { Dashboard } from "@/components/calboost/Dashboard";
@@ -12,10 +13,14 @@ import { WaterTracker } from "@/components/calboost/WaterTracker";
 import { WeightTracker } from "@/components/calboost/WeightTracker";
 import { ProfileTab } from "@/components/calboost/ProfileTab";
 import { UserProfile } from "@/lib/types";
+import { useAuth } from "@/hooks/useAuth";
+import { supabase } from "@/lib/supabase";
 
 type Tab = "scan" | "dashboard" | "workouts" | "planner" | "more" | "profile";
 
 export default function Home() {
+  const { user, loading } = useAuth();
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<Tab>("scan");
   const [showOnboarding, setShowOnboarding] = useState(true);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -24,25 +29,85 @@ export default function Home() {
   const [showWeightTracker, setShowWeightTracker] = useState(false);
 
   useEffect(() => {
-    // Check if user has completed onboarding
-    const profile = localStorage.getItem("calboost_profile");
-    if (profile) {
-      setUserProfile(JSON.parse(profile));
-      setShowOnboarding(false);
+    if (!loading && !user) {
+      router.push("/auth");
+      return;
     }
-  }, []);
 
-  const handleOnboardingComplete = (profile: UserProfile) => {
-    setUserProfile(profile);
-    localStorage.setItem("calboost_profile", JSON.stringify(profile));
-    setShowOnboarding(false);
+    if (user) {
+      loadUserProfile();
+    }
+  }, [user, loading, router]);
+
+  const loadUserProfile = async () => {
+    if (!user) return;
+
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('user_id', user.id)
+      .single();
+
+    if (data) {
+      setUserProfile({
+        id: data.id,
+        name: data.name,
+        age: data.age,
+        weight: data.weight,
+        height: data.height,
+        gender: data.gender,
+        activityLevel: data.activity_level,
+        goal: data.goal,
+        dailyCalorieGoal: data.daily_calorie_goal,
+      });
+      setShowOnboarding(false);
+    } else {
+      setShowOnboarding(true);
+    }
   };
 
-  const handleUpdateProfile = (updatedProfile: Partial<UserProfile>) => {
-    if (userProfile) {
-      const newProfile = { ...userProfile, ...updatedProfile };
-      setUserProfile(newProfile);
-      localStorage.setItem("calboost_profile", JSON.stringify(newProfile));
+  const handleOnboardingComplete = async (profile: UserProfile) => {
+    if (!user) return;
+
+    const { error } = await supabase
+      .from('profiles')
+      .insert({
+        user_id: user.id,
+        name: profile.name,
+        age: profile.age,
+        weight: profile.weight,
+        height: profile.height,
+        gender: profile.gender,
+        activity_level: profile.activityLevel,
+        goal: profile.goal,
+        daily_calorie_goal: profile.dailyCalorieGoal,
+      });
+
+    if (!error) {
+      setUserProfile(profile);
+      setShowOnboarding(false);
+    }
+  };
+
+  const handleUpdateProfile = async (updatedProfile: Partial<UserProfile>) => {
+    if (!user || !userProfile) return;
+
+    const { error } = await supabase
+      .from('profiles')
+      .update({
+        name: updatedProfile.name,
+        age: updatedProfile.age,
+        weight: updatedProfile.weight,
+        height: updatedProfile.height,
+        gender: updatedProfile.gender,
+        activity_level: updatedProfile.activityLevel,
+        goal: updatedProfile.goal,
+        daily_calorie_goal: updatedProfile.dailyCalorieGoal,
+      })
+      .eq('user_id', user.id);
+
+    if (!error) {
+      setUserProfile({ ...userProfile, ...updatedProfile });
     }
   };
 
@@ -61,31 +126,54 @@ export default function Home() {
     }
   };
 
-  const handleWaterSave = (amount: number) => {
-    const today = new Date().toDateString();
-    const currentWater = Number(localStorage.getItem("calboost_water_" + today) || "0");
+  const handleWaterSave = async (amount: number) => {
+    if (!user) return;
+
+    const today = new Date().toISOString().split('T')[0];
+    // For now, store in localStorage, but ideally create a water table
+    const currentWater = Number(localStorage.getItem(`calboost_water_${user.id}_${today}`) || "0");
     const newTotal = currentWater + amount;
-    localStorage.setItem("calboost_water_" + today, newTotal.toString());
-    
+    localStorage.setItem(`calboost_water_${user.id}_${today}`, newTotal.toString());
+
     // Refresh dashboard if it's active
     if (activeTab === "dashboard") {
       window.location.reload();
     }
   };
 
-  const handleWeightSave = (weight: number) => {
+  const handleWeightSave = async (weight: number) => {
+    if (!user) return;
+
     const today = new Date().toISOString();
-    const weights = JSON.parse(localStorage.getItem("calboost_weights") || "[]");
-    
+    // For now, store in localStorage, but ideally save to database
+    const weights = JSON.parse(localStorage.getItem(`calboost_weights_${user.id}`) || "[]");
+
     // Adicionar novo registro
     weights.push({ date: today, weight });
-    localStorage.setItem("calboost_weights", JSON.stringify(weights));
-    
+    localStorage.setItem(`calboost_weights_${user.id}`, JSON.stringify(weights));
+
     // Refresh planner if it's active
     if (activeTab === "planner") {
       window.location.reload();
     }
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#0D0D0D] flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#00BFFF] to-[#0080FF] flex items-center justify-center mb-4 mx-auto">
+            <TrendingUp className="w-10 h-10 text-white animate-pulse" />
+          </div>
+          <p className="text-white/60">Carregando...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return null; // Will redirect
+  }
 
   if (showOnboarding) {
     return <OnboardingQuiz onComplete={handleOnboardingComplete} />;
@@ -124,15 +212,15 @@ export default function Home() {
         {activeTab === "workouts" && <WorkoutsTab />}
         {activeTab === "planner" && <WeeklyPlanner userProfile={userProfile!} />}
         {activeTab === "profile" && (
-          <ProfileTab 
-            userProfile={userProfile!} 
+          <ProfileTab
+            userProfile={userProfile!}
             onUpdateProfile={handleUpdateProfile}
           />
         )}
         {activeTab === "more" && (
           <div className="space-y-4">
             <h2 className="text-2xl font-bold mb-6">Mais</h2>
-            
+
             {/* Menu Options */}
             <div className="bg-[#1A1A1A] rounded-2xl border border-white/10 overflow-hidden">
               <button
